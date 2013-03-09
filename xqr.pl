@@ -6,6 +6,8 @@ use Getopt::Long qw(Configure GetOptions);
 sub validateQuery($);
 sub limit($$);
 sub fromElement($$);
+sub whereClause($$);
+sub condition($$);
 
 #Pomocne funkce
 sub splitQuery($);
@@ -36,19 +38,20 @@ validateQuery(\%params) and die "Invalid query.\n";
 #	DEFINICE VOLANYCH FUNKCI
 ########################################################################
 sub validateQuery($){
-	my $params = @_;
-	my @words = splitQuery($params);
+	my $paramsPtr = shift @_;
+	my @words = splitQuery($paramsPtr);
 	my $i = 0;
 	
-	print @{$params{"query"}."\n";
+	#foreach my $a (@words){
+	#	print $a . "\n";}
 	
 	($words[$i] eq "SELECT") or return 1;		#eq pri shode vraci 1 -> or
 	$i++;
-	@{$params{"element"}} = $words[$i];
+	$$params{"element"} = $words[$i];
 	$i++;
 	
 	if(limit($i, $params) == 0){
-		@{$params{"limit"}} = $words[$i+1];	
+		$$params{"limit"} = $words[$i+1];	
 		$i+=2;
 	}
 
@@ -56,43 +59,64 @@ sub validateQuery($){
 	$i++;
 	
 	fromElement($i, $params);
-	print @{$params{"fromElement"}}. "\n";
-	if(@{$params{"fromElement"}} eq ""){
+	if($$params{"fromElement"} eq ""){
 		return 1;
 	}
 	$i++;
+	
+	#A TADY SI ZAVOLAME whereClause()
 	
 	return 0;
 }
 
 sub limit($$){
-	my ($i, $params ) = @_;
-	my @words = splitQuery($params);
+	my ($i, $paramsPtr ) = @_;
+	my @words = splitQuery($paramsPtr);
 	
 	(@words[$i] eq "LIMIT")? return 0 : return 1;
 }
 
 sub fromElement($$){
-	my $i = shift @_;
-	my $params = @_;
-	my @words = splitQuery($params);
+	my ($i, $paramsPtr ) = @_;
+	my @words = splitQuery($paramsPtr);
 	
 	if($words[$i] eq "ROOT"){
-		@{$params{"fromElement"}} = "ROOT";		# tohle
+		$$params{"fromElement"} = "ROOT";		
 		return 0;
 	}
 	
 	my @attrElem = split('\.', $words[$i]);
-	@{$params{"fromElement"}} = $attrElem[0];		#tohle
-	@{$params{"fromAttribute"}} = $attrElem[1];	#a tohle se nepreda zpatky do validateQuery...
-	print $attrElem[0];
-	print @{$params{"fromElement"}}."\n";
+	$$params{"fromElement"} = $attrElem[0];		
+	$$params{"fromAttribute"} = $attrElem[1];	
+	return 0;
+}
+
+#NOT FINISHED
+sub whereClause($$){
+	my ($i, $paramsPtr ) = @_;
+	my @words = splitQuery($paramsPtr);
+	
+	(@words[$i] eq "WHERE") or return 1;
+	$i++;
+	
+	condition($i, $paramsPtr);
+	
+	return 0;
+}
+
+#NOT FINISHED
+sub condition($$){
+	my ($i, $paramsPtr ) = @_;
+	my @words = splitQuery($paramsPtr);
+	
+	(@words[$i] eq "(") and {$i++; condition($i, $paramsPtr)};
+	(@words[$i] eq "NOT") and {$i++; condition($i, $paramsPtr)};
+	
 	return 0;
 }
 
 sub splitQuery($){
-	my $params = @_;
-	my $query = @{$params{"query"}};
+	my $params = shift @_;
+	my $query = $$params{"query"};
 	return split(' ', $query);;
 }
-

@@ -3,6 +3,8 @@
 use Getopt::Long qw(Configure GetOptions);
 use XML::LibXML;
 use Data::Dumper;
+use strict;
+#use warnings;
 
 #Funkce pro validaci xml dotazu pomoci rekurzivniho sestupu
 sub validateQuery($);
@@ -18,7 +20,8 @@ sub readXML($);
 sub findAttrs($$$);
 
 #Funkce pro zpracovavani vlastniho filtrovani dat
-sub elementSel($$@);
+sub elementSel($$$@);
+sub evalRel($$);
 
 
 ########################################################################
@@ -58,20 +61,31 @@ validateQuery(\%params) and die "Invalid query.\n";
 $xmlFile = readXML(\%params);
 
 my $document = XML::LibXML->createDocument( "1.0", "utf-8" );
-$document = $document->toString();
+if($params{"n"}){
+	$document = "";
+}
+else{
+	$document = $document->toString();
+}
 
+my $counter = 1;
 if($params{"fromElement"} eq "ROOT"){
 	if($params{"fromAttribute"}){		
 		my @matchingNodes;
 		findAttrs(\%params, $xmlFile, \@matchingNodes);
-		elementSel(\%params, \$document, @matchingNodes);
+		elementSel(\%params, \$document, \$counter, @matchingNodes);
 	}
 	else {
-		elementSel(\%params, \$document, $xmlFile->childNodes());
+		elementSel(\%params, \$document, \$counter, $xmlFile->childNodes());
 	}
 }
 else{
-	elementSel(\%params, \$document, $xmlFile->getElementsByTagName($params{"fromElement"}));
+	my @allElements = $xmlFile->getElementsByTagName($params{"fromElement"});
+	elementSel(\%params, \$document, \$counter, $allElements[0]);
+}
+
+if($params{"root"}){
+	
 }
 
 if($params{"output"}){
@@ -98,7 +112,7 @@ sub validateQuery($){
 	$$paramsPtr{"element"} = $words[$i];
 	$i++;
 
-	(limit($i_ptr, $paramsPtr) == 0);
+	limit($i_ptr, $paramsPtr);
 
 	($words[$i] eq "FROM") or return 1;
 	$i++;
@@ -118,7 +132,7 @@ sub limit($$){
 	my ($i_ptr, $paramsPtr ) = @_;
 	my @words = splitQuery($paramsPtr);
 	
-	if(@words[$$i_ptr] eq "LIMIT"){
+	if($words[$$i_ptr] eq "LIMIT"){
 		$$i_ptr++;
 		$$paramsPtr{"limit"} = $words[$$i_ptr];
 		$$i_ptr++;
@@ -149,7 +163,7 @@ sub whereClause($$){
 	my ($i_ptr, $paramsPtr ) = @_;
 	my @words = splitQuery($paramsPtr);
 	
-	(@words[$$i_ptr] eq "WHERE") or return 0;
+	($words[$$i_ptr] eq "WHERE") or return 0;
 	$$i_ptr++;
 	
 	condition($i_ptr, $paramsPtr) and return 1;
@@ -160,13 +174,14 @@ sub condition($$){
 	my ($i_ptr, $paramsPtr ) = @_;
 	my @words = splitQuery($paramsPtr);
 	
-	if(@words[$$i_ptr] eq "("){
+	if($words[$$i_ptr] eq "("){
 		$$i_ptr++; 
 		condition($i_ptr, $paramsPtr); 
 		return 0;
 	}
 		
-	if(@words[$$i_ptr] eq "NOT"){				### NOT JE TREBA ZAZNAMENAT PRO ZPRACOVANI!!!!!!
+	if($words[$$i_ptr] eq "NOT"){			
+		$$paramsPtr{"not"} = "defined";
 		$$i_ptr++; 
 		condition($i_ptr, $paramsPtr);
 		return 0;
@@ -180,6 +195,9 @@ sub condition($$){
 	$$paramsPtr{"literal"} = $words[$$i_ptr];
 	$$i_ptr++;
 	
+	$$paramsPtr{"literal"} or return 1;
+	($$paramsPtr{"whereElement"} or $$paramsPtr{"whereAttribute"}) or return 1;
+	
 	return 0;
 }
 
@@ -189,7 +207,8 @@ sub relation($$){
 	
 	$$paramsPtr{"cmp"}	= $words[$$i_ptr];
 	$$i_ptr++;	
-	if(($$paramsPtr{"cmp"} ne "=") and ($$paramsPtr{"cmp"} ne ">") and ($$paramsPtr{"cmp"} ne "<")){
+	if(($$paramsPtr{"cmp"} ne "=") and ($$paramsPtr{"cmp"} ne ">") and
+	 ($$paramsPtr{"cmp"} ne "<") and $$paramsPtr{"cmp"} ne "CONTAINS"){
 		return 1;
 	}
 	return 0;
@@ -214,6 +233,7 @@ sub readXML($){
 
 sub findAttrs($$$){
 	my($paramsPtr, $xmlNode, $foundNodes) = @_;
+	my $cascade = 1;
 	
 	if($xmlNode->hasAttributes()){
 		my @attrs = $xmlNode->attributes();
@@ -221,11 +241,13 @@ sub findAttrs($$$){
 		foreach $attr (@attrs){
 			if($attr->toString() =~ /$$paramsPtr{"fromAttribute"}.*/ ){
 				@$foundNodes = (@$foundNodes, $xmlNode);
+				$cascade = 0;
+				last;
 			}
 		}
 	}
 	
-	if($xmlNode->hasChildNodes()){
+	if($xmlNode->hasChildNodes() and $cascade){
 		my @childnodes = $xmlNode->childNodes();
 		my $node;
 		foreach $node (@childnodes){
@@ -238,35 +260,59 @@ sub findAttrs($$$){
 ########################################################################
 #	FUNKCE PRO ZPRACOVANI VLASTNIHO FILTROVANI DAT
 ########################################################################
-sub elementSel($$@){
-	my ($paramsPtr, $documentPtr, @childnodes) = @_;
+sub elementSel($$$@){
+	my ($paramsPtr, $documentPtr, $counter, @childnodes) = @_;
 	
 	my ($node, $attr);
 	foreach $node (@childnodes){
 		if($node->nodeName() eq $$paramsPtr{"element"}){
-			$$documentPtr .= $node->toString();
+			if(evalRel($paramsPtr, $node)){ 
+				if(defined($$paramsPtr{"limit"}) and ($$counter > int($$paramsPtr{"limit"}))){
+					return 0;
+				}
+				$$documentPtr .= $node->toString();
+				$$counter++;
+			}    
 		} 
 		elsif($node->hasChildNodes()){
-			elementSel($paramsPtr, $documentPtr, $node->childNodes());
+			elementSel($paramsPtr, $documentPtr, $counter, $node->childNodes());
 		}
 	}
 	return 0;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+sub evalRel($$){
+	my ($paramsPtr, $node) = @_;	
+	#podminka nezadana
+	$$paramsPtr{"cmp"} or return 1;
+	
+	if($$paramsPtr{"whereElement"}){
+		my @childnodes = $node->childNodes();
+		my $child;
+		foreach $child (@childnodes){
+			if($child->nodeName() eq $$paramsPtr{"whereElement"}){
+				if($$paramsPtr{"cmp"} eq "<") {
+					if($child->textContent() < int($$paramsPtr{"literal"})){
+						$$paramsPtr{"not"}?return 0:return 1;
+					} else { $$paramsPtr{"not"}?return 1:return 0;}
+				}
+				elsif($$paramsPtr{"cmp"} eq "="){
+					if($child->textContent() eq $$paramsPtr{"literal"}){
+						$$paramsPtr{"not"}?return 0:return 1;
+					} else { $$paramsPtr{"not"}?return 1:return 0;}
+				}
+				elsif($$paramsPtr{"cmp"} eq ">"){
+					if($child->textContent() > int($$paramsPtr{"literal"})){
+						$$paramsPtr{"not"}?return 0:return 1;
+					} else { $$paramsPtr{"not"}?return 1:return 0;}
+				}
+				elsif($$paramsPtr{"cmp"} eq "CONTAINS"){
+					if($child->textContent() =~ /.*$$paramsPtr{"literal"}.*/ ){
+						$$paramsPtr{"not"}?return 0:return 1;
+					} else { $$paramsPtr{"not"}?return 1:return 0;}
+				}
+			}
+		}
+	}
+	return 1;
+}

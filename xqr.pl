@@ -97,6 +97,19 @@ if($params{"fromElement"} eq "ROOT"){
 }
 else{
 	my @allElements = $xmlFile->getElementsByTagName($params{"fromElement"});
+	if($params{"fromAttribute"}){
+		my $elem;
+		foreach $elem (@allElements){
+			my @attrs = $elem->attributes();
+			my $attr;
+			foreach $attr (@attrs){
+				if($attr->toString() =~ /$params{"fromAttribute"}.*/){
+					$allElements[0] = $elem;
+					last;
+				}
+			}
+		}
+	}
 	elementSel(\%params, \$document, \$counter, $allElements[0]);
 }
 
@@ -264,21 +277,19 @@ sub readXML($){
 
 sub findAttrs($$$){
 	my($paramsPtr, $xmlNode, $foundNodes) = @_;
-	my $cascade = 1;
 	
 	if($xmlNode->hasAttributes()){
 		my @attrs = $xmlNode->attributes();
 		my $attr;
 		foreach $attr (@attrs){
 			if($attr->toString() =~ /$$paramsPtr{"fromAttribute"}.*/ ){
-				@$foundNodes = (@$foundNodes, $xmlNode);
-				$cascade = 0;
-				last;
+				@$foundNodes = $xmlNode;
+				return 0;
 			}
 		}
 	}
 	
-	if($xmlNode->hasChildNodes() and $cascade){
+	if($xmlNode->hasChildNodes()){
 		my @childnodes = $xmlNode->childNodes();
 		my $node;
 		foreach $node (@childnodes){

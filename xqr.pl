@@ -39,25 +39,37 @@ my $helpmsg = "Pouziti: ./xqr.pl
 my %params;		#parametry nactene ze vstupu + ze zpracovani dotazu
 my $xmlFile;    #struktura z knihovny libXML uchovavajici data nactena z xml souboru
 	
-GetOptions(\%params, "--help", "--input=s", "--output=s", "--query=s", 
-	"--qf=s", "-n", "--root=s") 
-or die $helpmsg;
+if(!GetOptions(\%params, "--help", "--input=s", "--output=s", "--query=s", 
+	"--qf=s", "-n", "--root=s") ){
+	print STDERR "Interni chyba pri zpracovani parametru.\n";
+	exit 1;
+}
 
 if($params{"help"}){
-	(scalar keys %params > 1) and exit 1;
 	print $helpmsg; 
+	(scalar keys %params > 1) and exit 1;
 	exit 0;
 }
 
-($params{"qf"} and $params{"query"}) and exit 1;
+if($params{"qf"} and $params{"query"}){
+	print STDERR "Chybna kombinace parametru.\n";
+	print STDERR $helpmsg;
+	exit 1;
+}
 
 if($params{"qf"}){
-	open(QUERYF, $params{"qf"});
+	if(!open(QUERYF, $params{"qf"})){
+		print STDERR "Doslo k chybe pri otevirani query file.\n";
+		exit 2;
+	}
 	chomp($params{"query"} = <QUERYF>);
 	close QUERYF;
 }
 
-validateQuery(\%params) and die "Invalid query.\n";
+if(validateQuery(\%params)){
+	print STDERR "Dotaz nebyl zadan v podporovanem formatu. \n";
+	exit 10;
+}
 $xmlFile = readXML(\%params);
 
 my $document = XML::LibXML->createDocument( "1.0", "utf-8" );
@@ -66,6 +78,10 @@ if($params{"n"}){
 }
 else{
 	$document = $document->toString();
+}
+
+if($params{"root"}){
+	$document .= "<".$params{"root"}.">";
 }
 
 my $counter = 1;
@@ -88,8 +104,15 @@ if($params{"root"}){
 	
 }
 
+if($params{"root"}){
+	$document .= "</".$params{"root"}.">";
+}
+
 if($params{"output"}){
-	open(OUTF, ">", $params{"output"});
+	if(!open(OUTF, ">", $params{"output"})){
+		print STDERR "Doslo k chybe pri otevirani vystupniho souboru.\n";
+		exit 3;
+	}
 	print OUTF $document."\n";
 	close OUTF;
 }
@@ -124,6 +147,10 @@ sub validateQuery($){
 	$i++;
 	
 	whereClause($i_ptr, $paramsPtr) and return 1;
+	
+	if(!$$paramsPtr{"root"}){
+		$$paramsPtr{"root"} = $$paramsPtr{"element"}."s";
+	}
 	
 	return 0;
 }
@@ -226,8 +253,12 @@ sub splitQuery($){
 sub readXML($){
 	my $paramsPtr = shift @_;	
 	my $parser = XML::LibXML->new;
-	my $fileContent = $parser->parse_file($$paramsPtr{"input"});
-	
+	my $fileContent;
+	eval{$fileContent = $parser->parse_file($$paramsPtr{"input"})};
+	if($@){
+		print STDERR "Chyba pri nacitani vstupniho xml souboru.\n";
+		exit 4;
+	}	
 	return $fileContent;
 }
 

@@ -1,6 +1,8 @@
 #! /usr/bin/perl
 #use strict;
 use Getopt::Long qw(Configure GetOptions);
+use XML::LibXML;
+use Data::Dumper;
 
 #Funkce pro validaci xml dotazu pomoci rekurzivniho sestupu
 sub validateQuery($);
@@ -12,6 +14,10 @@ sub relation($$);
 
 #Pomocne funkce
 sub splitQuery($);
+sub readXML($);
+
+#Funkce pro zpracovavani vlastniho filtrovani dat
+sub elemRoot($$$);
 
 
 ########################################################################
@@ -26,7 +32,8 @@ my $helpmsg = "Pouziti: ./xqr.pl
 	-n                  -zajisti negenerovani xml hlavicky v cilovem dokumentu
 	--root=element      -jmeno paroveho korenoveho elementu ve vystupu\n";
 	
-my %params;	#parametry nactene ze vstupu + ze zpracovani dotazu
+my %params;		#parametry nactene ze vstupu + ze zpracovani dotazu
+my $xmlFile;    #struktura z knihovny libXML uchovavajici data nactena z xml souboru
 	
 GetOptions(\%params, "--help", "--input=s", "--output=s", "--query=s", 
 	"--qf=s", "-n", "--root=s") 
@@ -40,12 +47,28 @@ if($params{"help"}){
 
 ($params{"qf"} and $params{"query"}) and exit 1;
 
-#($params{"qf"}) and {
-#	open QUERYFILE, $params{"qf"};			#tady se deje nejaky zlo...
-#};
+if($params{"qf"}){
+	open(QUERYF, $params{"qf"});
+	chomp($params{"query"} = <QUERYF>);
+	close QUERYF;
+}
 
 validateQuery(\%params) and die "Invalid query.\n";
+$xmlFile = readXML(\%params);
 
+my $document = XML::LibXML->createDocument( "1.0", "utf-8" );
+$document = $document->toString();
+
+if($params{"fromElement"} eq "ROOT"){
+	elemRoot(\%params, $xmlFile, \$document);
+}
+
+if($params{"output"}){
+	open(OUTF, ">", $params{"output"});
+	print OUTF $document;
+	close OUTF;
+}
+else {print $document."\n";}
 
 ########################################################################
 #	FUNKCE REKURZIVNIHO SESTUPU BKG
@@ -61,7 +84,7 @@ sub validateQuery($){
 	
 	($words[$i] eq "SELECT") or return 1;		#eq pri shode vraci 1 -> or
 	$i++;
-	$$params{"element"} = $words[$i];
+	$$paramsPtr{"element"} = $words[$i];
 	$i++;
 
 	(limit($i_ptr, $paramsPtr) == 0);
@@ -129,7 +152,7 @@ sub condition($$){
 		return 0;
 	}
 		
-	if(@words[$$i_ptr] eq "NOT"){
+	if(@words[$$i_ptr] eq "NOT"){				### NOT JE TREBA ZAZNAMENAT PRO ZPRACOVANI!!!!!!
 		$$i_ptr++; 
 		condition($i_ptr, $paramsPtr);
 		return 0;
@@ -166,3 +189,50 @@ sub splitQuery($){
 	my $query = $$params{"query"};
 	return split(' ', $query);;
 }
+
+sub readXML($){
+	my $paramsPtr = shift @_;	
+	my $parser = XML::LibXML->new;
+	my $fileContent = $parser->parse_file($$paramsPtr{"input"});
+	
+	return $fileContent;
+}
+
+########################################################################
+#	FUNKCE PRO ZPRACOVANI VLASTNIHO FILTROVANI DAT
+########################################################################
+sub elemRoot($$$){
+	my ($paramsPtr, $xmlNode, $documentPtr) = @_;
+	my @childnodes = $xmlNode->childNodes();
+	
+	my $a;
+	foreach $a (@childnodes){
+		if($a->nodeName() eq $$paramsPtr{"element"}){
+			$$documentPtr .= $a->toString();
+		} 
+		elsif($a->hasChildNodes()){
+			elemRoot($paramsPtr, $a, $documentPtr);
+		}
+	}
+	return 0;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -15,9 +15,10 @@ sub relation($$);
 #Pomocne funkce
 sub splitQuery($);
 sub readXML($);
+sub findAttrs($$$);
 
 #Funkce pro zpracovavani vlastniho filtrovani dat
-sub elemRoot($$$);
+sub elementSel($$@);
 
 
 ########################################################################
@@ -60,12 +61,22 @@ my $document = XML::LibXML->createDocument( "1.0", "utf-8" );
 $document = $document->toString();
 
 if($params{"fromElement"} eq "ROOT"){
-	elemRoot(\%params, $xmlFile, \$document);
+	if($params{"fromAttribute"}){		
+		my @matchingNodes;
+		findAttrs(\%params, $xmlFile, \@matchingNodes);
+		elementSel(\%params, \$document, @matchingNodes);
+	}
+	else {
+		elementSel(\%params, \$document, $xmlFile->childNodes());
+	}
+}
+else{
+	elementSel(\%params, \$document, $xmlFile->getElementsByTagName($params{"fromElement"}));
 }
 
 if($params{"output"}){
 	open(OUTF, ">", $params{"output"});
-	print OUTF $document;
+	print OUTF $document."\n";
 	close OUTF;
 }
 else {print $document."\n";}
@@ -128,6 +139,9 @@ sub fromElement($$){
 	my @attrElem = split('\.', $words[$$i_ptr]);
 	$$paramsPtr{"fromElement"} = $attrElem[0];		
 	$$paramsPtr{"fromAttribute"} = $attrElem[1];	
+	if((not $$paramsPtr{"fromElement"}) and $$paramsPtr{"fromAttribute"}){
+		($$paramsPtr{"fromElement"} = "ROOT");
+	}
 	return 0;
 }
 
@@ -198,26 +212,46 @@ sub readXML($){
 	return $fileContent;
 }
 
-########################################################################
-#	FUNKCE PRO ZPRACOVANI VLASTNIHO FILTROVANI DAT
-########################################################################
-sub elemRoot($$$){
-	my ($paramsPtr, $xmlNode, $documentPtr) = @_;
-	my @childnodes = $xmlNode->childNodes();
+sub findAttrs($$$){
+	my($paramsPtr, $xmlNode, $foundNodes) = @_;
 	
-	my $a;
-	foreach $a (@childnodes){
-		if($a->nodeName() eq $$paramsPtr{"element"}){
-			$$documentPtr .= $a->toString();
-		} 
-		elsif($a->hasChildNodes()){
-			elemRoot($paramsPtr, $a, $documentPtr);
+	if($xmlNode->hasAttributes()){
+		my @attrs = $xmlNode->attributes();
+		my $attr;
+		foreach $attr (@attrs){
+			if($attr->toString() =~ /$$paramsPtr{"fromAttribute"}.*/ ){
+				@$foundNodes = (@$foundNodes, $xmlNode);
+			}
+		}
+	}
+	
+	if($xmlNode->hasChildNodes()){
+		my @childnodes = $xmlNode->childNodes();
+		my $node;
+		foreach $node (@childnodes){
+			findAttrs($paramsPtr, $node, $foundNodes);
 		}
 	}
 	return 0;
 }
 
-
+########################################################################
+#	FUNKCE PRO ZPRACOVANI VLASTNIHO FILTROVANI DAT
+########################################################################
+sub elementSel($$@){
+	my ($paramsPtr, $documentPtr, @childnodes) = @_;
+	
+	my ($node, $attr);
+	foreach $node (@childnodes){
+		if($node->nodeName() eq $$paramsPtr{"element"}){
+			$$documentPtr .= $node->toString();
+		} 
+		elsif($node->hasChildNodes()){
+			elementSel($paramsPtr, $documentPtr, $node->childNodes());
+		}
+	}
+	return 0;
+}
 
 
 
